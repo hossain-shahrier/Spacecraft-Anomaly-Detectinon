@@ -1,0 +1,4 @@
+{
+  "rolling_window": 100,
+  "n_sigma": 3.0
+}
