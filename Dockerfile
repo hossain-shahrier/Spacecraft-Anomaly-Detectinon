@@ -12,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY config/ config/
 COPY src/ src/
-COPY scripts/ scripts/
 COPY artifacts/ artifacts/
 
 EXPOSE 7860

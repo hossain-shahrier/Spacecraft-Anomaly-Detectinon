@@ -23,10 +23,29 @@ def _build_window_vector(
     window_size: int,
     expected_features: int,
 ) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64)
+    try:
+        arr = np.asarray(values, dtype=np.float64)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "values must be a numeric 1D or 2D array with consistent "
+                f"row lengths (full SMAP model expects {window_size} rows × "
+                f"{expected_features // window_size} sensors)."
+            ),
+        ) from exc
 
     # 2D input: use last `window_size` rows and flatten.
     if arr.ndim == 2:
+        n_sensors = expected_features // window_size
+        if arr.shape[1] != n_sensors:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"invalid input shape: got {arr.shape[0]}×{arr.shape[1]}, "
+                    f"expected at least {window_size}×{n_sensors} for the full SMAP model"
+                ),
+            )
         if arr.shape[0] < window_size:
             raise HTTPException(
                 status_code=400,
@@ -96,26 +115,41 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _finite_threshold(value: float) -> float:
+    """JSON-safe threshold (no inf/nan in API responses)."""
+    if not np.isfinite(value):
+        return 1.0
+    return float(value)
+
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest) -> PredictResponse:
     start = time.perf_counter()
     config: AppConfig = _state["config"]
     window_size = config.window_size
     expected_features = int(_state["scaler"].n_features_in_)
-    window = _build_window_vector(request.values, window_size, expected_features)
-    scaled = transform_windows(_state["scaler"], window)
-    anomaly_score = score_window(_state["model"], scaled)
+    try:
+        window = _build_window_vector(request.values, window_size, expected_features)
+        scaled = transform_windows(_state["scaler"], window)
+        anomaly_score = score_window(_state["model"], scaled)
 
-    threshold_engine: DynamicThreshold = _state["threshold"]
-    result = threshold_engine.evaluate(
-        anomaly_score,
-        recent_scores=request.recent_scores,
-    )
+        threshold_engine: DynamicThreshold = _state["threshold"]
+        result = threshold_engine.evaluate(
+            anomaly_score,
+            recent_scores=request.recent_scores,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"could not score request: {exc}",
+        ) from exc
 
     latency_ms = (time.perf_counter() - start) * 1000.0
     return PredictResponse(
         anomaly_score=round(result.score, 6),
-        threshold=round(result.threshold, 6),
+        threshold=round(_finite_threshold(result.threshold), 6),
         status=result.status,
         latency_ms=round(latency_ms, 3),
     )
