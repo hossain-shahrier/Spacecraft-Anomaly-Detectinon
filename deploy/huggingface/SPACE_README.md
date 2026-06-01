@@ -11,35 +11,33 @@ license: mit
 
 # SMAP Spacecraft Anomaly Detection API
 
-Unsupervised anomaly detection for NASA **SMAP** telemetry using an **Isolation Forest** and dynamic thresholding.
+Unsupervised anomaly detection on **full NASA SMAP telemetry** (50 timesteps × 25 sensors per window) using an **Isolation Forest** and dynamic thresholding.
+
+**Space SDK:** Docker (FastAPI backend).
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Service health check |
-| `POST` | `/predict` | Score a telemetry window |
-| `GET` | `/docs` | Swagger UI |
+| `GET` | `/health` | Health check |
+| `POST` | `/predict` | Anomaly score for one window |
+| `GET` | `/docs` | Interactive API docs (Swagger) |
 
-## Example: health
+## Predict input (full model)
 
-```bash
-curl https://YOUR_USER-YOUR_SPACE.hf.space/health
-```
-
-## Example: predict
-
-Send the last **50 timesteps** (synthetic demo model) or **50×25** grid (full SMAP model).
+- **`values`:** JSON array of **50 rows**, each row has **25** sensor readings (last 50 timesteps).
+- Or a **flat** list of **1,250** floats (row-major).
+- **`recent_scores`:** optional list of prior scores for dynamic thresholding.
 
 ```json
 {
-  "channel_id": "T-1",
-  "values": [0.1, 0.2, "..."],
+  "channel_id": "E-1",
+  "values": [[... 25 floats ...], "... 50 rows total ..."],
   "recent_scores": [0.4, 0.42, 0.41]
 }
 ```
 
-Response:
+## Example response
 
 ```json
 {
@@ -52,8 +50,10 @@ Response:
 
 `status` is `normal` or `hardware_degradation`.
 
+## Try it
+
+Open **`/docs`** on this Space and run **POST /predict** from the browser.
+
 ## Source
 
-GitHub: link your repository here.
-
-Train locally with `python scripts/train.py`, then deploy artifacts via Docker Space.
+Trained locally on the [NASA SMAP/MSL Kaggle dataset](https://www.kaggle.com/datasets/patrickfleith/nasa-anomaly-detection-dataset-smap-msl); this Space ships **inference artifacts only** (no raw training data).

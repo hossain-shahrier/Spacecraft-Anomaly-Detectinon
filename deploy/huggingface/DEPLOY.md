@@ -1,73 +1,95 @@
-# Deploy on Hugging Face Spaces (free)
+# Deploy on Hugging Face Spaces (full SMAP model)
 
-This guide deploys **only the API** (`/health`, `/predict`). Train locally first, then push artifacts with your repo.
+## Which Space SDK to choose?
+
+| SDK | Use for this project? |
+|-----|------------------------|
+| **Docker** | **Yes — use this.** You already have FastAPI + `Dockerfile` + trained `artifacts/`. |
+| Gradio | No (unless you build a separate UI). This repo is an API, not a Gradio app. |
+| Streamlit | No (same reason). |
+| Static | No. There is no static frontend; inference runs in Python. |
+
+When creating the Space, select **Docker** and **app port 7860**.
+
+---
+
+## What gets deployed
+
+| On the Space | On your machine only |
+|--------------|----------------------|
+| `Dockerfile`, `src/`, `config/`, `requirements.txt` | Full `data/` (train/test `.npy`) |
+| Trained `artifacts/` (from full SMAP training) | `scripts/train.py` at deploy time |
+
+The Space serves **inference only**. Train once locally on the full NASA dataset, then push **artifacts**.
+
+---
 
 ## Before you start
 
-1. Train and save artifacts:
+### 1. Full dataset locally
 
-```bash
-# Demo Space (simple 50-number /predict requests)
-python scripts/generate_synthetic_data.py
-python scripts/train.py
-
-# OR full SMAP (50×25 /predict requests — see README)
-python scripts/train.py
+```powershell
+# Windows
+.\scripts\download_data.ps1
 ```
 
-2. Confirm these files exist:
+```bash
+# Linux/macOS
+bash scripts/download_data.sh
+```
 
-- `artifacts/model.joblib`
-- `artifacts/scaler.joblib`
-- `artifacts/threshold_state.json`
+Restore real labels if needed (file should be ~4 KB, not ~95 bytes):
 
-3. **Include artifacts in Git** (they are gitignored by default). For HF Docker build you must either:
+```bash
+curl -fsSL -o data/labeled_anomalies.csv \
+  https://raw.githubusercontent.com/khundman/telemanom/master/labeled_anomalies.csv
+```
 
-- Temporarily allow artifacts in git (recommended for a small demo model), or  
-- Use [Git LFS](https://git-lfs.github.com/) for `*.joblib`, or  
-- Upload artifacts in a private release and `curl` them in `Dockerfile` (advanced).
+### 2. Train on full SMAP
 
-Example to track artifacts once:
+```bash
+python scripts/train.py
+python scripts/evaluate.py
+```
+
+Expect evaluation on **~53 channels**. Artifacts use **1,250 features** per window (50 timesteps × 25 sensors).
+
+### 3. Commit artifacts to Git
+
+Artifacts are gitignored by default. Hugging Face must receive them in the repo (or via Git LFS):
 
 ```bash
 git add -f artifacts/model.joblib artifacts/scaler.joblib artifacts/threshold_state.json
-git commit -m "Add trained model artifacts for HF Space"
+git commit -m "Add full SMAP model artifacts for HF Space"
 git push
 ```
 
-## Step 1 — Push code to GitHub
+---
 
-Hugging Face pulls from GitHub (or you can upload files manually). Your repo root must contain:
+## Create the Space
 
-- `Dockerfile` (listens on port **7860** by default for HF)
-- `requirements.txt`, `src/`, `config/`, `artifacts/`
-- Space README with Docker SDK header (see `SPACE_README.md`)
+1. Open [huggingface.co/new-space](https://huggingface.co/new-space).
+2. **Owner / name:** e.g. `your-username/smap-anomaly-api`.
+3. **Space SDK:** **Docker** (not Gradio, not Static).
+4. **Space hardware:** CPU basic (free).
+5. **Visibility:** Public (required for free tier).
+6. **Repository:** connect this GitHub repo (or push the same files into the Space repo).
 
-## Step 2 — Create a Docker Space
+### Build settings
 
-1. Go to [huggingface.co/new-space](https://huggingface.co/new-space).
-2. **Space SDK:** Docker.
-3. **Hardware:** CPU basic (free).
-4. **Visibility:** Public (required for free tier).
-5. Connect your GitHub repo (or duplicate files into the Space repo).
+| Field | Value |
+|-------|--------|
+| SDK | `docker` |
+| App port | `7860` |
+| Dockerfile path | `Dockerfile` (repository root) |
 
-## Step 3 — Space README (card)
+### Space README
 
-On Hugging Face, open the Space **README** editor and paste the contents of [`SPACE_README.md`](./SPACE_README.md) (YAML frontmatter + short description).
+Copy [`SPACE_README.md`](./SPACE_README.md) into the Space **README** on Hugging Face (YAML frontmatter at the top is required for Docker Spaces).
 
-Or merge that YAML block at the top of your GitHub `README.md` if the Space uses the same file.
+---
 
-## Step 4 — Build settings
-
-| Setting | Value |
-|---------|--------|
-| SDK | Docker |
-| App port | `7860` (default; matches `Dockerfile`) |
-| Dockerfile | `Dockerfile` (repo root) |
-
-Click **Create Space** and wait for the Docker build. First build may take several minutes.
-
-## Step 5 — Test the live API
+## Test after deploy
 
 Replace `YOUR_USER` and `YOUR_SPACE`:
 
@@ -75,19 +97,32 @@ Replace `YOUR_USER` and `YOUR_SPACE`:
 curl https://YOUR_USER-YOUR_SPACE.hf.space/health
 ```
 
-**Synthetic model** (50 floats):
+**Predict** requires **50 timesteps × 25 sensors** as a JSON 2D array (`values`), or a flat list of **1,250** floats.
 
-```bash
-curl -X POST "https://YOUR_USER-YOUR_SPACE.hf.space/predict" \
-  -H "Content-Type: application/json" \
-  -d "{\"channel_id\":\"T-1\",\"values\":[0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2,0.15,0.13,0.12,0.11,0.1,0.2],\"recent_scores\":[0.4,0.42,0.41]}"
+Easiest way to try requests: open
+
+```text
+https://YOUR_USER-YOUR_SPACE.hf.space/docs
 ```
 
-**Full SMAP model** (50 rows × 25 sensors): send `values` as a JSON 2D array (see main README).
+Use **POST /predict** in Swagger with a body like:
 
-Interactive docs: `https://YOUR_USER-YOUR_SPACE.hf.space/docs`
+```json
+{
+  "channel_id": "E-1",
+  "values": [
+    [0.1, 0.2, 0.15, 0.05, 0.03, 0.08, 0.11, 0.09, 0.07, 0.13, 0.1, 0.2, 0.15, 0.05, 0.03, 0.08, 0.11, 0.09, 0.07, 0.13, 0.1, 0.2, 0.15, 0.05, 0.03],
+    "... repeat for 50 rows total ..."
+  ],
+  "recent_scores": [0.4, 0.42, 0.41]
+}
+```
 
-## Local test (same image as HF)
+Each inner array must have **25** numbers (one row per timestep).
+
+---
+
+## Local test (same Docker image as HF)
 
 ```bash
 docker build -t smap-hf .
@@ -95,18 +130,21 @@ docker run -p 7860:7860 smap-hf
 curl http://127.0.0.1:7860/health
 ```
 
+---
+
 ## Free tier notes
 
-- CPU only; no GPU needed for Isolation Forest.
-- Space sleeps when idle; first request after sleep can be slow (cold start).
-- Public Spaces only on the free plan.
-- Do **not** upload the full `data/` folder — only `artifacts/`.
+- CPU only (enough for Isolation Forest).
+- Space may **sleep** when idle; first request after sleep can be slow.
+- Do **not** upload `data/` — only code + `artifacts/`.
+
+---
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| Build fails: `Artifacts not found` | Train locally; `git add -f artifacts/*.joblib` and push |
-| `/predict` returns 400 invalid shape | Model trained on full data needs 50×25 input; synthetic needs 50 floats |
-| Build fails: missing `artifacts/` in context | `.dockerignore` must not exclude `artifacts/` |
-| App never becomes ready | Check Logs tab; ensure app listens on `0.0.0.0:7860` |
+| Build: artifacts missing | Train on full data; `git add -f artifacts/*` and push |
+| `/predict` 400 invalid shape | Send 50×25 `values`, not 50 floats |
+| Only 1 channel at train time | Restore full `labeled_anomalies.csv` before `train.py` |
+| App not ready | Logs tab → confirm listen on `0.0.0.0:7860` |

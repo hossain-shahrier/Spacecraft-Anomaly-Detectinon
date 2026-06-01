@@ -208,10 +208,14 @@ Example response:
 
 ## Deploy free on Hugging Face Spaces
 
-Use a **Docker Space** (CPU, public, free tier). Train locally, commit `artifacts/`, then connect GitHub.
+**Space SDK: Docker** (not Gradio, not Static). This project is a FastAPI service.
+
+1. Train on **full SMAP** locally (`download_data` → `train.py`).
+2. Commit `artifacts/` to Git (`git add -f artifacts/...`).
+3. Create a **Docker** Space (port **7860**) and connect the repo.
 
 **Full guide:** [deploy/huggingface/DEPLOY.md](deploy/huggingface/DEPLOY.md)  
-**Space card text:** [deploy/huggingface/SPACE_README.md](deploy/huggingface/SPACE_README.md)
+**Space README (paste on HF):** [deploy/huggingface/SPACE_README.md](deploy/huggingface/SPACE_README.md)
 
 Quick test with Docker (same image as HF, port 7860):
 
